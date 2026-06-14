@@ -44,6 +44,7 @@ SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 # ── Scraper tuning ──────────────────────────────────────────────────────────
 BATCH_SIZE = 50
 HF_DELAY_SECONDS = 0.5
+SHOPIFY_DELAY_SECONDS = 0.75  # delay between Shopify JSON API calls to avoid 429 rate limits
 MAX_RETRIES = 3
 SCROLL_PAUSE_SECONDS = 2.0
 MAX_SCROLL_ATTEMPTS = 30

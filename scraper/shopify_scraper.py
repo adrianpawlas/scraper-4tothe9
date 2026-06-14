@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -24,10 +25,12 @@ from scraper.config import (
     CATEGORY_MAP,
     MAX_SCROLL_ATTEMPTS,
     SCROLL_PAUSE_SECONDS,
+    SHOPIFY_DELAY_SECONDS,
 )
 from scraper.models import ProductData
 
 _session = requests.Session()
+_last_shopify_call: float = 0.0
 
 # ── public API ───────────────────────────────────────────────────────────────
 
@@ -55,12 +58,22 @@ def discover_product_urls() -> dict[str, set[str]]:
     return result
 
 
+def _rate_limit_shopify():
+    """Enforce a minimum gap between Shopify API calls to avoid 429 rate limits."""
+    global _last_shopify_call
+    elapsed = time.time() - _last_shopify_call
+    if elapsed < SHOPIFY_DELAY_SECONDS:
+        time.sleep(SHOPIFY_DELAY_SECONDS - elapsed)
+    _last_shopify_call = time.time()
+
+
 def fetch_product_json(product_url: str) -> Optional[dict]:
     """Fetch Shopify JSON for a single product via ``/products/<handle>.json``."""
     handle = _extract_handle(product_url)
     if not handle:
         return None
     json_url = f"https://4tothe9.com/products/{handle}.json"
+    _rate_limit_shopify()
     try:
         resp = _session.get(json_url, timeout=30)
         resp.raise_for_status()

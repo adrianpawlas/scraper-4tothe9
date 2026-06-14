@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import time
@@ -31,11 +32,26 @@ def _normalize_url(url: str) -> str:
     return url
 
 
-def main():
+def main(argv: Optional[list[str]] = None):
+    parser = argparse.ArgumentParser(
+        description="4tothe9 Product Scraper",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Limit to N products (0 = no limit)",
+    )
+    args = parser.parse_args(argv)
+    limit = args.limit
+
     start = time.time()
     print("=" * 60)
     print("  4tothe9 Product Scraper")
     print(f"  Source: {SOURCE}")
+    if limit:
+        print(f"  Limit:  {limit} products")
     print("=" * 60)
 
     # ── Validate configuration early ────────────────────────────────────────
@@ -58,6 +74,10 @@ def main():
             canonical = _normalize_url(url)
             canonical_urls.add(canonical)
             product_categories.setdefault(canonical, set()).add(handle)
+
+    # Apply limit if set
+    if limit > 0:
+        canonical_urls = set(sorted(canonical_urls)[:limit])
 
     print(f"\n  Total unique product URLs: {len(canonical_urls)}")
 
@@ -170,10 +190,14 @@ def main():
         _flush_batch(pending_batch, failed_ids)
 
     # ── Stale cleanup ────────────────────────────────────────────────────────
-    print("\n[4/4] Cleaning up stale products ...")
-    deleted = db.delete_stale_products(existing_map, canonical_urls)
-    if deleted:
-        print(f"  Deleted {deleted} stale product(s)")
+    deleted = 0
+    if limit:
+        print("\n[4/4] Skipping stale cleanup (--limit test run)")
+    else:
+        print("\n[4/4] Cleaning up stale products ...")
+        deleted = db.delete_stale_products(existing_map, canonical_urls)
+        if deleted:
+            print(f"  Deleted {deleted} stale product(s)")
 
     # ── Run summary ──────────────────────────────────────────────────────────
     elapsed = time.time() - start

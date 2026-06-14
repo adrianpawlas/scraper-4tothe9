@@ -93,6 +93,12 @@ def upsert_batch(products: list[ProductData]) -> int:
             return len(rows)
         except requests.RequestException as exc:
             print(f"    [RETRY {attempt}/{MAX_RETRIES}] Batch upsert failed: {exc}")
+            # Log response body on 4xx errors to help diagnose schema mismatches
+            if hasattr(exc, "response") and exc.response is not None:
+                status = exc.response.status_code
+                if 400 <= status < 500:
+                    body = exc.response.text[:500]
+                    print(f"      Response ({status}): {body}")
             if attempt < MAX_RETRIES:
                 time.sleep(2 ** attempt)  # exponential backoff
     return 0

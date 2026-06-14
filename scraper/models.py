@@ -76,7 +76,6 @@ class ProductData:
         # Only include embeddings if they are set
         if self.image_embedding is not None:
             d["image_embedding"] = self.image_embedding
-            d["embedding_version"] = self.embedding_version
         if self.back_image_embedding is not None:
             d["back_image_embedding"] = self.back_image_embedding
         if self.info_embedding is not None:
