@@ -242,14 +242,14 @@ def parse_product(
 def _scroll_and_collect_links(page, url: str) -> set[str]:
     """Scroll through a Shopify collection page and collect all product links."""
     try:
-        page.goto(url, wait_until="networkidle", timeout=60_000)
+        page.goto(url, wait_until="domcontentloaded", timeout=60_000)
     except Exception as exc:
         print(f"    [WARN] Navigation failed for {url}: {exc}")
         return set()
 
     # Wait for at least one product link to appear (confirms products are loaded)
     try:
-        page.wait_for_selector("a[href*='/products/']", timeout=15_000)
+        page.wait_for_selector("a[href*='/products/']", timeout=30_000)
     except Exception:
         # No product links found even after waiting — category might be empty
         print(f"    [INFO] No product links found on {url} after waiting")
