@@ -51,3 +51,28 @@ HF_DELAY_SECONDS = 0.5
 MAX_RETRIES = 3
 SCROLL_PAUSE_SECONDS = 2.0
 MAX_SCROLL_ATTEMPTS = 30
+
+
+# ── Validation ───────────────────────────────────────────────────────────────
+
+REQUIRED_ENV_VARS = {
+    "SUPABASE_URL": "Supabase project URL",
+    "SUPABASE_KEY": "Supabase service role key",
+    "HUGGING_FACE_ENDPOINT_URL": "HuggingFace Inference Endpoint URL for SigLIP",
+    "HUGGING_FACE_ACCESS_TOKEN": "HuggingFace access token",
+}
+
+
+def validate_config():
+    """Raise ``ValueError`` if any required env var is missing or empty."""
+    missing = []
+    for var, description in REQUIRED_ENV_VARS.items():
+        val = os.environ.get(var, "")
+        if not val:
+            missing.append(f"  {var}: {description}")
+    if missing:
+        raise ValueError(
+            "Missing required environment variables:\n"
+            + "\n".join(missing)
+            + "\n\nSet these as GitHub Actions secrets or in a .env file."
+        )

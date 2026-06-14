@@ -10,7 +10,20 @@ from scraper import db
 from scraper.config import BATCH_SIZE, SOURCE
 from scraper.embeddings import embed_image, embed_text
 from scraper.models import ProductData
-from scraper.shopify_scraper import discover_product_urls, fetch_product_json, parse_product
+from scraper.shopify_scraper import (
+    discover_product_urls,
+    fetch_product_json,
+    parse_product,
+)
+from scraper.shopify_scraper import _extract_handle
+
+
+def _normalize_url(url: str) -> str:
+    """Strip collection prefix to get canonical product URL."""
+    handle = _extract_handle(url)
+    if handle:
+        return f"https://4tothe9.com/products/{handle}"
+    return url
 
 
 def main():
@@ -20,15 +33,30 @@ def main():
     print(f"  Source: {SOURCE}")
     print("=" * 60)
 
+    # ── Validate configuration early ────────────────────────────────────────
+    from scraper.config import validate_config
+    try:
+        validate_config()
+    except ValueError as e:
+        print(f"\n  [CONFIG ERROR] {e}")
+        sys.exit(1)
+
     # ── Discover product URLs ────────────────────────────────────────────────
     print("\n[1/4] Discovering product URLs across categories ...")
     category_links = discover_product_urls()
-    all_product_urls: set[str] = set()
-    for handle, urls in category_links.items():
-        all_product_urls |= urls
-    print(f"\n  Total unique product URLs: {len(all_product_urls)}")
 
-    if not all_product_urls:
+    # Normalize to canonical URLs (strip collection prefix) and deduplicate
+    canonical_urls: set[str] = set()
+    product_categories: dict[str, set[str]] = {}
+    for handle, urls in category_links.items():
+        for url in urls:
+            canonical = _normalize_url(url)
+            canonical_urls.add(canonical)
+            product_categories.setdefault(canonical, set()).add(handle)
+
+    print(f"\n  Total unique product URLs: {len(canonical_urls)}")
+
+    if not canonical_urls:
         print("\n  [ERROR] No products found. Aborting.")
         sys.exit(1)
 
@@ -52,14 +80,8 @@ def main():
     }
     failed_ids: list[str] = []
 
-    # Track categories per product (product may be in multiple collections)
-    product_categories: dict[str, set[str]] = {}
-    for handle, urls in category_links.items():
-        for url in urls:
-            product_categories.setdefault(url, set()).add(handle)
-
-    for idx, product_url in enumerate(sorted(all_product_urls), 1):
-        print(f"\n  [{idx}/{len(all_product_urls)}] {product_url}")
+    for idx, product_url in enumerate(sorted(canonical_urls), 1):
+        print(f"\n  [{idx}/{len(canonical_urls)}] {product_url}")
 
         # Fetch Shopify JSON
         shopify_product = fetch_product_json(product_url)
@@ -140,7 +162,7 @@ def main():
 
     # ── Stale cleanup ────────────────────────────────────────────────────────
     print("\n[4/4] Cleaning up stale products ...")
-    deleted = db.delete_stale_products(existing_map, all_product_urls)
+    deleted = db.delete_stale_products(existing_map, canonical_urls)
     if deleted:
         print(f"  Deleted {deleted} stale product(s)")
 
