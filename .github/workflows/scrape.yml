@@ -30,8 +30,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          HUGGING_FACE_ENDPOINT_URL: ${{ secrets.HUGGING_FACE_ENDPOINT_URL }}
-          HUGGING_FACE_ACCESS_TOKEN: ${{ secrets.HUGGING_FACE_ACCESS_TOKEN }}
         run: |
           python -m scraper
 

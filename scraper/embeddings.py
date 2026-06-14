@@ -1,23 +1,45 @@
-"""Embedding generation via HuggingFace Inference Endpoint (SigLIP)."""
+"""Embedding generation using google/siglip-base-patch16-384 (local model).
+
+Runs the SigLIP model locally via the ``transformers`` library — no external API calls.
+Model is loaded once and reused across all products.
+"""
 
 from __future__ import annotations
 
-import io
-import json
 import time
 from typing import Optional
 
-import requests
+import numpy as np
+import torch
 from PIL import Image
+from transformers import SiglipProcessor, SiglipModel
 
-from scraper.config import HF_ENDPOINT_URL, HF_ACCESS_TOKEN, HF_DELAY_SECONDS
+from scraper.config import HF_DELAY_SECONDS
 
-_session = requests.Session()
+MODEL_NAME = "google/siglip-base-patch16-384"
+EMBEDDING_DIM = 768
+
+_model: Optional[SiglipModel] = None
+_processor: Optional[SiglipProcessor] = None
+_device: str = "cpu"
 _last_call: float = 0.0
 
 
+def _lazy_init():
+    """Load the model on first use (lazy initialisation)."""
+    global _model, _processor, _device
+    if _model is not None:
+        return
+    _device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"    [INFO] Loading SigLIP model on {_device} ...")
+    _processor = SiglipProcessor.from_pretrained(MODEL_NAME)
+    _model = SiglipModel.from_pretrained(MODEL_NAME).to(_device)
+    _model.eval()
+    print(f"    [INFO] SigLIP model loaded successfully (device={_device}).")
+
+
 def _rate_limit():
-    """Enforce 0.5 s gap between consecutive HF API calls."""
+    """Enforce a minimum gap between consecutive calls to avoid overwhelming CPU/GPU."""
     global _last_call
     elapsed = time.time() - _last_call
     if elapsed < HF_DELAY_SECONDS:
@@ -25,86 +47,85 @@ def _rate_limit():
     _last_call = time.time()
 
 
-def _headers() -> dict:
-    return {
-        "Authorization": f"Bearer {HF_ACCESS_TOKEN}",
-    }
+def embed_image(image: Image.Image) -> Optional[list[float]]:
+    """Return a 768-dim L2-normalised image embedding.
 
+    Parameters
+    ----------
+    image : PIL.Image.Image
+        The already-opened image to embed.
 
-def embed_image(image_url: str) -> Optional[list[float]]:
-    """Download an image and return its 768-dim L2-normalised embedding.
-
-    Returns None on any error so the caller can continue gracefully.
+    Returns
+    -------
+    list[float] or None
+        768-dimensional L2-normalised embedding, or None on failure.
     """
-    try:
-        resp = _session.get(image_url, timeout=30)
-        resp.raise_for_status()
-        image_bytes = resp.content
-    except requests.RequestException as exc:
-        print(f"  [WARN] Failed to download image {image_url[:80]}: {exc}")
-        return None
-
+    _lazy_init()
     _rate_limit()
     try:
-        # The HF Endpoint for SigLIP expects raw image bytes.
-        r = _session.post(
-            HF_ENDPOINT_URL,
-            headers={**_headers(), "Content-Type": "application/octet-stream"},
-            data=image_bytes,
-            timeout=60,
-        )
-        r.raise_for_status()
-        emb = r.json()
-        # HF sometimes wraps the vector in an extra array
-        if isinstance(emb, list) and emb and isinstance(emb[0], list):
-            emb = emb[0]
-        if isinstance(emb, list) and len(emb) == 768:
-            return _l2_normalize(emb)
-        print(f"  [WARN] Unexpected embedding shape: {len(emb) if isinstance(emb, list) else type(emb)}")
+        inputs = _processor(images=image, return_tensors="pt").to(_device)
+        with torch.no_grad():
+            outputs = _model.get_image_features(**inputs)
+        if hasattr(outputs, "pooler_output"):
+            emb_tensor = outputs.pooler_output
+        else:
+            emb_tensor = outputs[0]
+        embedding = emb_tensor.cpu().numpy().flatten()
+        norm = np.linalg.norm(embedding)
+        if norm > 0:
+            embedding = embedding / norm
+        if len(embedding) == EMBEDDING_DIM:
+            return embedding.tolist()
+        print(f"    [WARN] Unexpected image embedding shape: {len(embedding)}")
         return None
-    except requests.RequestException as exc:
-        print(f"  [WARN] HF image embedding failed for {image_url[:80]}: {exc}")
-        return None
-    except (json.JSONDecodeError, TypeError, IndexError) as exc:
-        print(f"  [WARN] HF image embedding parse error: {exc}")
+    except Exception as exc:
+        print(f"    [WARN] Image embedding failed: {exc}")
         return None
 
 
 def embed_text(text: str) -> Optional[list[float]]:
-    """Return 768-dim L2-normalised text embedding via the same SigLIP endpoint.
+    """Return a 768-dim L2-normalised text embedding.
 
-    Returns None on error.
+    SigLIP text model has ``max_position_embeddings=64`` tokens, so input
+    is truncated and padded accordingly.
+
+    Parameters
+    ----------
+    text : str
+        The text to embed.
+
+    Returns
+    -------
+    list[float] or None
+        768-dimensional L2-normalised embedding, or None on failure.
     """
     if not text.strip():
         return None
 
+    _lazy_init()
     _rate_limit()
     try:
-        r = _session.post(
-            HF_ENDPOINT_URL,
-            headers={**_headers(), "Content-Type": "application/json"},
-            json={"inputs": text},
-            timeout=60,
-        )
-        r.raise_for_status()
-        emb = r.json()
-        if isinstance(emb, list) and emb and isinstance(emb[0], list):
-            emb = emb[0]
-        if isinstance(emb, list) and len(emb) == 768:
-            return _l2_normalize(emb)
-        print(f"  [WARN] Unexpected text embedding shape: {len(emb) if isinstance(emb, list) else type(emb)}")
+        inputs = _processor(
+            text=text,
+            padding="max_length",
+            max_length=64,
+            truncation=True,
+            return_tensors="pt",
+        ).to(_device)
+        with torch.no_grad():
+            outputs = _model.get_text_features(**inputs)
+        if hasattr(outputs, "pooler_output"):
+            emb_tensor = outputs.pooler_output
+        else:
+            emb_tensor = outputs[0]
+        embedding = emb_tensor.cpu().numpy().flatten()
+        norm = np.linalg.norm(embedding)
+        if norm > 0:
+            embedding = embedding / norm
+        if len(embedding) == EMBEDDING_DIM:
+            return embedding.tolist()
+        print(f"    [WARN] Unexpected text embedding shape: {len(embedding)}")
         return None
-    except requests.RequestException as exc:
-        print(f"  [WARN] HF text embedding failed: {exc}")
+    except Exception as exc:
+        print(f"    [WARN] Text embedding failed: {exc}")
         return None
-    except (json.JSONDecodeError, TypeError, IndexError) as exc:
-        print(f"  [WARN] HF text embedding parse error: {exc}")
-        return None
-
-
-def _l2_normalize(v: list[float]) -> list[float]:
-    """L2-normalise a vector in-place."""
-    norm = sum(x * x for x in v) ** 0.5
-    if norm == 0:
-        return v
-    return [x / norm for x in v]

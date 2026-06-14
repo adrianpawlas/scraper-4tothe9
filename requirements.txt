@@ -2,3 +2,6 @@ playwright>=1.48.0
 requests>=2.32.0
 Pillow>=10.0.0
 python-dotenv>=1.0.0
+numpy>=1.24.0
+torch>=2.1.0
+transformers>=4.36.0

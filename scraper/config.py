@@ -41,10 +41,6 @@ CATEGORY_MAP = {
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 
-# ── HuggingFace Inference Endpoint ──────────────────────────────────────────
-HF_ENDPOINT_URL = os.environ["HUGGING_FACE_ENDPOINT_URL"]
-HF_ACCESS_TOKEN = os.environ["HUGGING_FACE_ACCESS_TOKEN"]
-
 # ── Scraper tuning ──────────────────────────────────────────────────────────
 BATCH_SIZE = 50
 HF_DELAY_SECONDS = 0.5
@@ -58,8 +54,6 @@ MAX_SCROLL_ATTEMPTS = 30
 REQUIRED_ENV_VARS = {
     "SUPABASE_URL": "Supabase project URL",
     "SUPABASE_KEY": "Supabase service role key",
-    "HUGGING_FACE_ENDPOINT_URL": "HuggingFace Inference Endpoint URL for SigLIP",
-    "HUGGING_FACE_ACCESS_TOKEN": "HuggingFace access token",
 }
 
 

@@ -5,6 +5,11 @@ from __future__ import annotations
 import os
 import sys
 import time
+from io import BytesIO
+from typing import Optional
+
+import requests
+from PIL import Image as PILImage
 
 from scraper import db
 from scraper.config import BATCH_SIZE, SOURCE
@@ -124,12 +129,16 @@ def main():
         # Generate image embedding (front only — no back shots for this brand)
         if needs_image_embed and pd.image_url:
             print("    → Embedding front image ...")
-            emb = embed_image(pd.image_url)
-            if emb:
-                pd.image_embedding = emb
-                stats["front_embeddings"] += 1
+            pil_image = _download_image(pd.image_url)
+            if pil_image:
+                emb = embed_image(pil_image)
+                if emb:
+                    pd.image_embedding = emb
+                    stats["front_embeddings"] += 1
+                else:
+                    print("    [WARN] Image embedding failed, continuing")
             else:
-                print("    [WARN] Image embedding failed, continuing")
+                print("    [WARN] Could not download image, skipping embedding")
 
         # Generate text embedding
         if needs_text_embed:
@@ -222,6 +231,26 @@ def _flush_batch(batch: list[ProductData], failed_ids: list[str]) -> int:
     print(f"    → {inserted} rows affected")
     batch.clear()
     return inserted
+
+
+# ── Image download helper ──────────────────────────────────────────────────
+
+
+_session = requests.Session()
+
+
+def _download_image(url: str) -> Optional[PILImage.Image]:
+    """Download an image from a URL and return a PIL Image."""
+    try:
+        resp = _session.get(url, timeout=30)
+        resp.raise_for_status()
+        return PILImage.open(BytesIO(resp.content))
+    except requests.RequestException as exc:
+        print(f"    [WARN] Failed to download image {url[:80]}: {exc}")
+        return None
+    except Exception as exc:
+        print(f"    [WARN] Failed to decode image {url[:80]}: {exc}")
+        return None
 
 
 if __name__ == "__main__":
